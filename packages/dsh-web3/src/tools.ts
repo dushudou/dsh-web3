@@ -228,7 +228,7 @@ export function buildTools(options: BuildToolsOptions): WalletTool[] {
     {
       name: 'wallet_status',
       description:
-        'Wallet overview: locked/unlocked, account count, policy summary, and daily-PIN state. Call first before any wallet work.',
+        'Wallet overview: locked/unlocked, account count, policy summary, and PIN authorization state. Call first before any wallet work.',
       parameters: {},
       execute: guarded(async () => {
         const { limits } = service.limitsView();
@@ -330,7 +330,7 @@ export function buildTools(options: BuildToolsOptions): WalletTool[] {
     },
     {
       name: 'wallet_remove_account',
-      description: 'Remove an account from the vault (deletes its encrypted key; irreversible without a backup). Requires human approval + daily PIN.',
+      description: 'Remove an account from the vault (deletes its encrypted key; irreversible without a backup). Requires human approval + PIN authorization.',
       parameters: { account: accountSelector },
       execute: guarded(async (args, ctx) => {
         const meta = service.vault.requireAccount(requireStr(args, 'account'));
@@ -464,7 +464,7 @@ export function buildTools(options: BuildToolsOptions): WalletTool[] {
     {
       name: 'wallet_transfer',
       description:
-        'Send native coin or an ERC-20 token using HUMAN units: amount "0.05" + token "USDC" (the wallet converts with the token\'s real decimals — never convert to wei yourself). Recommended flow: call with dryRun=true, show the user `summary` and every `security.findings` entry (HIGH/CRITICAL ones word for word), get confirmation, then execute with wallet_send_transaction { preparedId }. Without dryRun it prepares and sends in one step (policy / daily PIN / human approval still apply).',
+        'Send native coin or an ERC-20 token using HUMAN units: amount "0.05" + token "USDC" (the wallet converts with the token\'s real decimals — never convert to wei yourself). Recommended flow: call with dryRun=true, show the user `summary` and every `security.findings` entry (HIGH/CRITICAL ones word for word), get confirmation, then execute with wallet_send_transaction { preparedId }. Without dryRun it prepares and sends in one step (policy / PIN authorization / human approval still apply).',
       parameters: {
         account: accountSelector,
         chainId,
@@ -518,7 +518,7 @@ export function buildTools(options: BuildToolsOptions): WalletTool[] {
     {
       name: 'wallet_send_transaction',
       description:
-        'Execute a transaction. Preferred: { preparedId } from wallet_transfer(dryRun) / wallet_prepare_transaction / wallet_approve_token — signs exactly what the user reviewed (fees and nonce refreshed). Alternatively pass raw fields (account, chainId, to, amount|value, data) for a one-shot send. Flow: policy → daily PIN → human approval (when required) → sign → broadcast. If status is "broadcast-uncertain", NEVER resend: check wallet_tx_status.',
+        'Execute a transaction. Preferred: { preparedId } from wallet_transfer(dryRun) / wallet_prepare_transaction / wallet_approve_token — signs exactly what the user reviewed (fees and nonce refreshed). Alternatively pass raw fields (account, chainId, to, amount|value, data) for a one-shot send. Flow: policy → PIN authorization → human approval (when required) → sign → broadcast. If status is "broadcast-uncertain", NEVER resend: check wallet_tx_status.',
       parameters: {
         preparedId: { type: 'string', description: 'Id returned by a prepare / dryRun call (valid 15 minutes, single use).' },
         account: { type: 'string', description: 'Raw mode: account id, address, or label.' },
@@ -644,7 +644,7 @@ export function buildTools(options: BuildToolsOptions): WalletTool[] {
     // ── signatures ──────────────────────────────────────────────────────
     {
       name: 'wallet_sign_message',
-      description: 'Sign an EIP-191 personal message (e.g. Sign-In with Ethereum). Policy, daily PIN and human approval apply.',
+      description: 'Sign an EIP-191 personal message (e.g. Sign-In with Ethereum). Policy, PIN authorization and human approval apply.',
       parameters: {
         account: accountSelector,
         message: { type: 'string', description: 'The exact message text to sign.', required: true },
@@ -721,7 +721,7 @@ export function buildTools(options: BuildToolsOptions): WalletTool[] {
     {
       name: 'wallet_policy_set',
       description:
-        'Tighten the signing policy with a preset, e.g. agent-full → agent-semi, anything → strict (every operation asks a human) or locked (no signing at all). Fresh vaults start in agent-semi. Requires human approval + daily PIN. Loosening — a more autonomous preset (agent-semi / agent-full / power / testnet / micropay from a stricter one), custom rules, raising limits or the automatic budget, whitelisting — is never done by the agent: it returns status "use-panel"; tell the user to change it in DSH Settings → Web3 → Limits (PIN-confirmed). Only call when the user explicitly asks.',
+        'Tighten the signing policy with a preset, e.g. agent-full → agent-semi, anything → strict (every operation asks a human) or locked (no signing at all). Fresh vaults start in agent-semi. Requires human approval + PIN authorization. Loosening — a more autonomous preset (agent-semi / agent-full / power / testnet / micropay from a stricter one), custom rules, raising limits or the automatic budget, whitelisting — is never done by the agent: it returns status "use-panel"; tell the user to change it in DSH Settings → Web3 → Limits (PIN-confirmed). Only call when the user explicitly asks.',
       parameters: {
         preset: { type: 'string', enum: PRESETS, description: 'Preset to apply. Only tightening changes are applied here.', required: true },
       },
@@ -754,7 +754,7 @@ export function buildTools(options: BuildToolsOptions): WalletTool[] {
     {
       name: 'wallet_reveal_secret',
       description: allowReveal
-        ? 'Reveal the mnemonic or private key INTO THE TRANSCRIPT after human approval + daily PIN. Only on explicit user request.'
+        ? 'Reveal the mnemonic or private key INTO THE TRANSCRIPT after human approval + PIN authorization. Only on explicit user request.'
         : 'Backup guidance: mnemonics/private keys are never returned to the chat. Returns instructions to reveal them in DSH Settings → Web3 (PIN protected).',
       parameters: {
         account: accountSelector,
@@ -783,7 +783,7 @@ export function buildTools(options: BuildToolsOptions): WalletTool[] {
     {
       name: 'wallet_export_keystore',
       description:
-        'Export an account as an encrypted Web3 Secret Storage keystore file (0600, under the vault exports folder). Returns only the file path. Requires human approval + daily PIN. Note: the passphrase you pass is visible in the transcript — suggest the user change it after import elsewhere.',
+        'Export an account as an encrypted Web3 Secret Storage keystore file (0600, under the vault exports folder). Returns only the file path. Requires human approval + PIN authorization. Note: the passphrase you pass is visible in the transcript — suggest the user change it after import elsewhere.',
       parameters: {
         account: accountSelector,
         keystorePassphrase: { type: 'string', description: 'Passphrase (min 8 chars) to encrypt the keystore with.', required: true },
@@ -803,7 +803,7 @@ export function buildTools(options: BuildToolsOptions): WalletTool[] {
     // ── human gates ─────────────────────────────────────────────────────
     {
       name: 'wallet_pin_status',
-      description: 'Daily-PIN gate status: configured, authorized today, locked out. Sensitive operations need today\'s PIN grant.',
+      description: 'PIN gate status: configured, authorized (and until when), locked out. Sensitive operations need a PIN grant in force; the user sets its length (1, 7 or 30 days) in the panel.',
       parameters: {},
       execute: guarded(async () => ({ pin: await service.pinStatus() })),
       output: OUTPUT,
@@ -812,19 +812,19 @@ export function buildTools(options: BuildToolsOptions): WalletTool[] {
     {
       name: 'wallet_pin_verify',
       description:
-        'Check whether today is PIN-authorized. There is NO pin argument: the user enters the PIN only in DSH Settings → Web3 (it never passes through the model).',
+        'Check whether a PIN authorization is in force. There is NO pin argument: the user enters the PIN only in DSH Settings → Web3 (it never passes through the model).',
       parameters: {},
       execute: guarded(async () => {
         const status = await service.pinStatus();
-        if (status.enabled && !status.locked && !status.authorizedToday) {
+        if (status.enabled && !status.locked && !status.authorized) {
           return {
             authorized: false,
             message:
-              '今日尚未通过 PIN 解锁。请引导用户前往 DSH 设置 → Web3 面板的“PIN 安全”区域输入 PIN（每天一次），完成后再重试该操作。不要要求用户在此输入 PIN。',
+              '尚未通过 PIN 授权或授权已过期。请引导用户前往 DSH 设置 → Web3 面板的“PIN 安全”区域输入 PIN（授权时长可选 1 / 7 / 30 天），完成后再重试该操作。不要要求用户在此输入 PIN。',
             pin: status,
           };
         }
-        return { authorized: status.enabled && status.authorizedToday, pin: status };
+        return { authorized: status.enabled && status.authorized, pin: status };
       }),
       output: OUTPUT,
       isConcurrencySafe: readOnly,

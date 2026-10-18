@@ -1,6 +1,6 @@
 {
   "name": "dsh-web3",
-  "version": "0.9.2",
+  "version": "0.10.0",
   "description": "DeepSeek Harness (DSH) plugin: agent-safe EVM wallet with encrypted vault, signing policy, model tools, bundled skill, and web UI.",
   "keywords": [
     "dsh",

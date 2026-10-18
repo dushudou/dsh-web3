@@ -437,7 +437,7 @@ export class Web3Remote extends TypertRemoteService {
     return { entries: this.service.addressBookList() };
   }
 
-  // ── daily PIN gate (UI-only; PIN never enters model context) ────────────
+  // ── PIN gate (UI-only; PIN never enters model context) ────────────
 
   /** PIN gate status (secret-free). */
   async pinStatus(request: unknown) {
@@ -493,9 +493,23 @@ export class Web3Remote extends TypertRemoteService {
     }
   }
 
-  /** Revoke today's authorization (manual lock). */
+  /** Revoke the current authorization (manual lock). */
   async pinLock(request: unknown) {
     return { ok: true, pin: await this.service.pinClearDaily() };
+  }
+
+  /** Set how long one PIN entry authorizes sensitive operations (1, 7 or 30 days). */
+  async pinGrantDays(request: unknown) {
+    const query = (request ?? {}) as { days?: unknown; pin?: string };
+    if (query.days !== 1 && query.days !== 7 && query.days !== 30) {
+      return { ok: false, error: 'days must be 1, 7 or 30' };
+    }
+    try {
+      const status = await this.service.setPinGrantDaysFromPanel(query.days, text(query.pin));
+      return { ok: true, pin: status };
+    } catch (error) {
+      return failure(error);
+    }
   }
 
 }
@@ -532,6 +546,7 @@ for (const method of [
   'pinSetup',
   'pinChange',
   'pinLock',
+  'pinGrantDays',
 ]) {
   markRemoteMethod(Web3Remote.prototype, method);
 }

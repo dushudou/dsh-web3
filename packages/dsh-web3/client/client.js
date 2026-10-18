@@ -254,9 +254,9 @@ window.__ModuleLoader__.load({
 				vaultSection: "钱包", vaultState: "保险库", unlocked: "已解锁", locked: "已锁定",
 				vaultHint: "锁定后内存中的密钥会被清除。", autoLock: "自动锁定", autoLockValue: "闲置 {n} 分钟后", configHint: "在插件配置中修改",
 				dataDir: "数据目录", keySource: "口令来源", keySourceAuto: "系统凭据（自动）", keySourceKeychain: "macOS 钥匙串（自动）", keySourceEnv: "环境变量", keySourceManual: "手动",
-				authSection: "身份验证", authDesc: "PIN 每天验证一次，用于 Agent 发起的签名；查看助记词、导出、删除、放宽限额每次都要输入。",
-				pin: "PIN", pinOff: "未设置", pinToday: "今日已验证", pinNotToday: "今日未验证", pinLocked: "输错次数过多，已锁定到明天",
-				pinSetup: "设置 PIN", pinChange: "修改 PIN", pinVerify: "验证", pinRevoke: "撤销今日授权",
+				authSection: "身份验证", authDesc: "输入一次 PIN 后，Agent 发起的签名在所选授权时长内无需重复输入（1 / 7 / 30 天）；查看助记词、导出、删除、放宽限额每次都要输入。",
+				pin: "PIN", pinOff: "未设置", pinAuthorized: "已授权", pinUntil: "已授权，有效至 {t}", pinNotToday: "未授权", pinGrant: "授权时长", pinGrantHint: "输入一次 PIN 后，在此时长内签名无需重复输入。延长时长需要 PIN，缩短立即生效。", grant1: "1 天", grant7: "7 天", grant30: "30 天", pinGrantSaved: "授权时长已更新", pinLocked: "输错次数过多，已锁定到明天",
+				pinSetup: "设置 PIN", pinChange: "修改 PIN", pinVerify: "验证", pinRevoke: "撤销授权",
 				pinSetupTitle: "设置 PIN", pinChangeTitle: "修改 PIN", pinVerifyTitle: "验证 PIN",
 				pinNew: "新 PIN（4–12 位）", pinRepeat: "再次输入", pinCurrent: "当前 PIN", pinTooShort: "PIN 需为 4–12 位", pinMismatch: "两次输入不一致",
 				agentSection: "Agent 权限", agentDesc: "Agent 只能通过工具发起操作，以下规则无法被对话内容改变。",
@@ -339,9 +339,9 @@ window.__ModuleLoader__.load({
 				vaultSection: "Wallet", vaultState: "Vault", unlocked: "Unlocked", locked: "Locked",
 				vaultHint: "Locking wipes decrypted keys from memory.", autoLock: "Auto-lock", autoLockValue: "After {n} min idle", configHint: "Change it in the plugin config",
 				dataDir: "Data directory", keySource: "Passphrase source", keySourceAuto: "System credentials (automatic)", keySourceKeychain: "macOS Keychain (automatic)", keySourceEnv: "Environment variable", keySourceManual: "Manual",
-				authSection: "Verification", authDesc: "The PIN is verified once a day for agent-started signing; viewing secrets, exporting, removing, and loosening limits ask for it every time.",
-				pin: "PIN", pinOff: "Not set", pinToday: "Verified today", pinNotToday: "Not verified today", pinLocked: "Too many attempts; locked until tomorrow",
-				pinSetup: "Set PIN", pinChange: "Change PIN", pinVerify: "Verify", pinRevoke: "Revoke today",
+				authSection: "Verification", authDesc: "One PIN entry covers agent-started signing for the chosen period (1, 7 or 30 days); viewing secrets, exporting, removing, and loosening limits ask for it every time.",
+				pin: "PIN", pinOff: "Not set", pinAuthorized: "Authorized", pinUntil: "Authorized until {t}", pinNotToday: "Not authorized", pinGrant: "Authorization length", pinGrantHint: "One PIN entry covers signing for this long. Lengthening needs the PIN; shortening applies at once.", grant1: "1 day", grant7: "7 days", grant30: "30 days", pinGrantSaved: "Authorization length updated", pinLocked: "Too many attempts; locked until tomorrow",
+				pinSetup: "Set PIN", pinChange: "Change PIN", pinVerify: "Verify", pinRevoke: "Revoke authorization",
 				pinSetupTitle: "Set a PIN", pinChangeTitle: "Change PIN", pinVerifyTitle: "Verify PIN",
 				pinNew: "New PIN (4–12 characters)", pinRepeat: "Repeat it", pinCurrent: "Current PIN", pinTooShort: "Use 4–12 characters", pinMismatch: "The entries do not match",
 				agentSection: "Agent permissions", agentDesc: "The agent acts only through wallet tools; nothing said in a chat can change these rules.",
@@ -1097,8 +1097,9 @@ window.__ModuleLoader__.load({
 			const settings = data.settings || {};
 			const [dialog, setDialog] = React.useState(null);
 			const { busy, message, act } = useAction(props.reload);
-			const pinState = !pin.enabled ? t("pinOff") : pin.locked ? t("pinLocked") : pin.authorizedToday ? t("pinToday") : t("pinNotToday");
-			const pinDot = !pin.enabled ? "idle" : pin.locked ? "error" : pin.authorizedToday ? "done" : "warning";
+			const stepUp = useStepUp();
+			const pinState = !pin.enabled ? t("pinOff") : pin.locked ? t("pinLocked") : pin.authorized ? (pin.authorizedUntil ? fmt(t("pinUntil"), { t: when(pin.authorizedUntil) }) : t("pinAuthorized")) : t("pinNotToday");
+			const pinDot = !pin.enabled ? "idle" : pin.locked ? "error" : pin.authorized ? "done" : "warning";
 			const keySource = settings.passphraseMode === "env" ? t("keySourceEnv") : settings.passphraseMode === "manual" ? t("keySourceManual") : settings.keychain ? t("keySourceKeychain") : t("keySourceAuto");
 
 			return h("div", { className: "dshw" },
@@ -1117,11 +1118,19 @@ window.__ModuleLoader__.load({
 					h(Row, { label: [h(Dot, { key: "d", state: pinDot }), " ", t("pin")], hint: pinState },
 						!pin.enabled ? h(Btn, { variant: "primary", onClick: () => setDialog("setup") }, t("pinSetup"))
 							: [
-								!pin.authorizedToday && !pin.locked ? h(Btn, { key: "v", variant: "primary", onClick: () => setDialog("verify") }, t("pinVerify")) : null,
-								pin.authorizedToday ? h(Btn, { key: "r", variant: "ghost", disabled: busy, onClick: () => void act(() => api("pinLock")) }, t("pinRevoke")) : null,
+								!pin.authorized && !pin.locked ? h(Btn, { key: "v", variant: "primary", onClick: () => setDialog("verify") }, t("pinVerify")) : null,
+								pin.authorized ? h(Btn, { key: "r", variant: "ghost", disabled: busy, onClick: () => void act(() => api("pinLock")) }, t("pinRevoke")) : null,
 								h(Btn, { key: "c", variant: "ghost", onClick: () => setDialog("change") }, t("pinChange")),
 							],
 					),
+					pin.enabled ? h(Row, { label: t("pinGrant"), hint: t("pinGrantHint") },
+						[1, 7, 30].map((days) => h(Btn, {
+							key: days,
+							variant: pin.grantDays === days ? "primary" : "ghost",
+							disabled: busy || pin.grantDays === days,
+							onClick: () => void act(() => stepUp((code) => api("pinGrantDays", { days, pin: code })), t("pinGrantSaved")),
+						}, t("grant" + days))),
+					) : null,
 				),
 				data.security ? h(ChecksSection, { security: data.security, reload: props.reload }) : null,
 				data.security ? h(DenylistSection, { security: data.security, reload: props.reload }) : null,

@@ -1,9 +1,11 @@
 /**
  * PIN gate for sensitive wallet operations.
  *
- * A short PIN the user enters once per day (in the DSH Web3 settings UI —
- * never through the model) authorizes sensitive operations: transfers,
- * message signing, keystore export, secret reveal, and policy changes.
+ * A short PIN the user enters in the DSH Web3 settings UI — never through the
+ * model — authorizes sensitive operations: transfers, message signing, keystore
+ * export, secret reveal, and policy changes. One entry grants authorization for
+ * a chosen period (1, 7 or 30 days; default 1), so routine automatic signing is
+ * not interrupted by PIN prompts.
  *
  * Security properties:
  * - The PIN itself is never stored; only an scrypt hash (`pin.json`, 0600).
@@ -11,7 +13,9 @@
  *   kept outside the vault directory (`pin.json` version 2), so a copied
  *   `pin.json` cannot be brute-forced offline — short numeric PINs have a
  *   tiny search space. Version 1 files upgrade on the next correct entry.
- * - Daily authorization is a calendar-day grant; a new day requires re-entry.
+ * - A grant ends at a fixed instant (entry time + grant period). Lengthening
+ *   the period needs a fresh PIN (the settings panel enforces that); shortening
+ *   it takes effect at once.
  * - Too many consecutive failures (default 5) lock the gate until the next
  *   local midnight (fail-open is never allowed).
  * - Lockout and failure state persist across restarts (`pin-state.json`).
@@ -36,13 +40,20 @@ export const PIN_MIN_LENGTH = 4;
 export const PIN_MAX_LENGTH = 12;
 export const PIN_MAX_FAILURES = 5;
 
+/** How long one PIN entry authorizes sensitive operations, in days. */
+export const PIN_GRANT_DAYS = [1, 7, 30] as const;
+export type PinGrantDays = (typeof PIN_GRANT_DAYS)[number];
+export const PIN_DEFAULT_GRANT_DAYS: PinGrantDays = 1;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 /** Slightly lighter scrypt than key-file KDF (PIN verification is frequent). */
 const PIN_KDF: KdfParams = { N: 16384, r: 8, p: 1 };
 const SCRYPT_MAXMEM = 128 * 32768 * 8 * 2;
 
-/** Thrown when a sensitive operation requires daily PIN authorization. */
+/** Thrown when a sensitive operation requires a PIN authorization in force. */
 export class PinRequiredError extends Error {
-  constructor(message = 'daily PIN authorization required: enter your PIN in DSH settings → Web3') {
+  constructor(message = 'PIN authorization required: enter your PIN in DSH settings → Web3') {
     super(message);
     this.name = 'PinRequiredError';
   }
@@ -88,9 +99,17 @@ export interface PinFile {
   hash: string;
 }
 
-/** Persisted runtime state: daily grant + failure throttle. */
+/**
+ * Persisted runtime state: the grant, its period, and the failure throttle.
+ * `authorizedDate` is the pre-0.10 calendar-day grant, honoured until the next
+ * PIN entry replaces it with `authorizedUntil`.
+ */
 export interface PinStateFile {
+  /** When the current grant started (ISO). */
+  authorizedFrom?: string;
+  authorizedUntil?: string;
   authorizedDate?: string;
+  grantDays?: PinGrantDays;
   failCount: number;
   failDate?: string;
   lockedUntil?: string;
@@ -99,7 +118,12 @@ export interface PinStateFile {
 /** Secret-free PIN gate status for the UI and tools. */
 export interface PinStatus {
   enabled: boolean;
-  authorizedToday: boolean;
+  /** Whether a PIN grant is currently in force. */
+  authorized: boolean;
+  /** When the current grant ends (ISO), if one is in force. */
+  authorizedUntil?: string;
+  /** Length of each grant, in days. */
+  grantDays: PinGrantDays;
   locked: boolean;
   lockRemainingMs: number;
   failuresRemaining: number;
@@ -205,18 +229,33 @@ export class PinGuard {
     return this.pinFile !== undefined;
   }
 
+  /** Length of each PIN grant, in days (the user's setting). */
+  get grantDays(): PinGrantDays {
+    const days = this.state.grantDays;
+    return PIN_GRANT_DAYS.includes(days as PinGrantDays) ? (days as PinGrantDays) : PIN_DEFAULT_GRANT_DAYS;
+  }
+
+  /** Whether a grant is in force at `now` (epoch ms). Fails closed on an unreadable end time. */
+  private isAuthorized(now: number): boolean {
+    if (this.state.authorizedUntil !== undefined) return new Date(this.state.authorizedUntil).getTime() > now;
+    return this.state.authorizedDate === today();
+  }
+
   /** Secret-free status. */
   status(): PinStatus {
     if (!this.enabled) {
-      return { enabled: false, authorizedToday: false, locked: false, lockRemainingMs: 0, failuresRemaining: PIN_MAX_FAILURES };
+      return { enabled: false, authorized: false, grantDays: this.grantDays, locked: false, lockRemainingMs: 0, failuresRemaining: PIN_MAX_FAILURES };
     }
     const now = Date.now();
     const lockedUntilMs = this.state.lockedUntil !== undefined ? new Date(this.state.lockedUntil).getTime() : 0;
     const locked = lockedUntilMs > now;
     const failuresToday = this.state.failDate === today() ? this.state.failCount : 0;
+    const authorized = this.isAuthorized(now);
     return {
       enabled: true,
-      authorizedToday: this.state.authorizedDate === today(),
+      authorized,
+      ...(authorized && this.state.authorizedUntil !== undefined ? { authorizedUntil: this.state.authorizedUntil } : {}),
+      grantDays: this.grantDays,
       locked,
       lockRemainingMs: locked ? lockedUntilMs - now : 0,
       failuresRemaining: Math.max(0, PIN_MAX_FAILURES - failuresToday),
@@ -228,7 +267,7 @@ export class PinGuard {
     validatePin(pin);
     if (this.enabled) throw new Error('PIN is already configured; use changePin');
     this.pinFile = await this.newPinFile(pin);
-    this.state = { failCount: 0 };
+    this.state = { failCount: 0, grantDays: this.grantDays };
     await this.save();
   }
 
@@ -241,14 +280,14 @@ export class PinGuard {
     const { ok } = await this.verify(current);
     if (!ok) throw new PinInvalidError();
     this.pinFile = await this.newPinFile(next);
-    this.state = { failCount: 0 };
+    this.state = { failCount: 0, grantDays: this.grantDays };
     await this.save();
   }
 
   /**
-   * Verify a PIN. On success grants today's authorization and resets failures.
-   * On failure increments the throttle and locks the gate until tomorrow when
-   * the failure cap is reached. Returns the resulting status (no secrets).
+   * Verify a PIN. On success grants authorization for `grantDays` and resets
+   * failures. On failure increments the throttle and locks the gate until
+   * tomorrow when the failure cap is reached. Returns the resulting status (no secrets).
    */
   async verify(pin: string): Promise<{ ok: boolean; status: PinStatus }> {
     const current = this.status();
@@ -265,7 +304,13 @@ export class PinGuard {
     if (ok) {
       // Upgrade an unpeppered record now that the PIN is known.
       if (file.version === 1 && this.pepper !== undefined) this.pinFile = await this.newPinFile(pin);
-      this.state = { authorizedDate: today(), failCount: 0 };
+      const now = Date.now();
+      this.state = {
+        authorizedFrom: new Date(now).toISOString(),
+        authorizedUntil: new Date(now + this.grantDays * DAY_MS).toISOString(),
+        failCount: 0,
+        grantDays: this.grantDays,
+      };
       await this.save();
       return { ok: true, status: this.status() };
     }
@@ -275,24 +320,62 @@ export class PinGuard {
     this.state.failCount = next;
     if (next >= PIN_MAX_FAILURES) {
       this.state.lockedUntil = nextMidnightIso();
-      this.state.authorizedDate = undefined;
+      this.clearGrant();
     }
     await this.save();
     return { ok: false, status: this.status() };
   }
 
-  /** Throw when enabled and not authorized today (or locked). */
+  /**
+   * Set the grant length. Lengthening re-anchors the grant to now (the caller
+   * has just verified the PIN); shortening ends the grant in force at the
+   * earlier of its own end and the new period counted from its start.
+   * A grant that is not in force stays unauthorized.
+   */
+  async setGrantDays(days: PinGrantDays): Promise<void> {
+    if (!PIN_GRANT_DAYS.includes(days)) throw new Error(`grant period must be one of ${PIN_GRANT_DAYS.join(', ')} days`);
+    const now = Date.now();
+    const previous = this.grantDays;
+    const wasAuthorized = this.isAuthorized(now);
+    if (wasAuthorized && days > previous) {
+      this.state.authorizedFrom = new Date(now).toISOString();
+      this.state.authorizedUntil = new Date(now + days * DAY_MS).toISOString();
+      this.state.authorizedDate = undefined;
+    } else if (wasAuthorized && days < previous) {
+      // A pre-0.10 grant has no start time: it can never outlast the end of its day.
+      const from = this.state.authorizedFrom !== undefined ? new Date(this.state.authorizedFrom).getTime() : now;
+      const ends = this.state.authorizedUntil !== undefined ? new Date(this.state.authorizedUntil).getTime() : new Date(nextMidnightIso()).getTime();
+      if (Number.isNaN(from) || Number.isNaN(ends)) {
+        // An unreadable grant cannot be shortened: revoke it, fail closed.
+        this.clearGrant();
+      } else {
+        this.state.authorizedUntil = new Date(Math.min(ends, from + days * DAY_MS)).toISOString();
+        this.state.authorizedDate = undefined;
+      }
+    }
+    this.state.grantDays = days;
+    await this.save();
+  }
+
+  /** Throw when enabled and no grant is in force (or locked). */
   requireAuthorized(): void {
     const current = this.status();
     if (!this.enabled) return;
     if (current.locked) throw new PinLockedError();
-    if (!current.authorizedToday) throw new PinRequiredError();
+    if (!current.authorized) throw new PinRequiredError();
   }
 
-  /** Revoke today's authorization (e.g. on explicit lock). */
+  /** Revoke the current authorization (e.g. on explicit lock). */
   async clearDaily(): Promise<void> {
-    this.state.authorizedDate = undefined;
+    this.clearGrant();
     await this.save();
+  }
+
+  /** Drop the grant, keeping the chosen period and the failure throttle. */
+  private clearGrant(): void {
+    this.state.authorizedDate = undefined;
+    this.state.authorizedFrom = undefined;
+    this.state.authorizedUntil = undefined;
   }
 
   /** Remove the PIN gate entirely. */

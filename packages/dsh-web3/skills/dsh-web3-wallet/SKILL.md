@@ -45,7 +45,7 @@ whenToUse: 用户提到钱包、余额、转账、付款、收款、代币、USD
 
 | 目的 | 工具 | 关键参数 |
 |---|---|---|
-| 总览（先调） | `wallet_status` | 锁定状态、账户数、当前安全模式（preset，`agent-semi` / `agent-full` 为托管模式）、限额、今日 PIN |
+| 总览（先调） | `wallet_status` | 锁定状态、账户数、当前安全模式（preset，`agent-semi` / `agent-full` 为托管模式）、限额、PIN 授权状态 |
 | 解锁/锁定 | `wallet_unlock` / `wallet_lock` | 口令自动解析，不要问用户要 |
 | 账户 | `wallet_list` / `wallet_create` / `wallet_import` / `wallet_remove_account` | `wallet_create {fromAccount}` = 同一助记词派生下一个地址 |
 | 链与余额 | `wallet_chains` / `wallet_balance` | `wallet_balance {account, chainId, tokens?:["USDC"]}` |
@@ -77,7 +77,7 @@ whenToUse: 用户提到钱包、余额、转账、付款、收款、代币、USD
 2. wallet_transfer {account, chainId, to, amount, token, dryRun: true, idempotencyKey}
    → status "prepared"：summary / security / willRequire / preparedId
 3. 告诉用户：summary + 全部 security.findings + 需要的动作
-   - willRequire.dailyPin → 提醒先在 设置 → Web3 → 安全 输入今日 PIN
+   - willRequire.dailyPin → 提醒先在 设置 → Web3 → 安全 输入 PIN 完成授权
    - willRequire.humanApproval → 执行时会弹出审批框
    - willRequire.aboveAutoBudget → 半托管下超出自动预算：执行会返回 needs-human、不会签名；先告诉用户，由用户决定是否去面板调整
    - willRequire.blocked → 被策略、限额或安全检查禁止：说明 decision.reason，结束
@@ -153,7 +153,7 @@ whenToUse: 用户提到钱包、余额、转账、付款、收款、代币、USD
 | `needs-human` | 半托管下超出自动预算，**未签名**，也没有弹框 | 告诉用户金额和原因（`decision.reason`）；用户可在 设置 → Web3 → 限额 提高自动预算或切换安全模式。用户说改好了再重试一次；**不要**拆单、换链或循环重试 |
 | `awaiting-approval-rejected` | 用户在审批框拒绝/取消 | 停止；用户再次要求才重来 |
 | `unavailable-approver` | 当前环境无法弹审批 | 告诉用户需在 DSH 界面会话中操作 |
-| `status: "pin-required"` | 今日 PIN 未解锁 | 引导用户到 设置 → Web3 → 安全 输入，然后重试同一调用 |
+| `status: "pin-required"` | PIN 授权未生效或已过期 | 引导用户到 设置 → Web3 → 安全 输入，然后重试同一调用 |
 | `status: "pin-locked"` | PIN 输错过多 | 今天不要再试 |
 | `status: "use-panel"` | 必须由用户在设置面板完成（备份、放宽策略等） | 转述 `message`，引导用户去面板 |
 
@@ -202,12 +202,12 @@ whenToUse: 用户提到钱包、余额、转账、付款、收款、代币、USD
 
 ## 安全模型（向用户解释时使用）
 
-- **托管模式**：半托管（默认）在自动预算内自动签名，超出则挂起等用户；全托管在硬性上限内自动签名。两者都受硬性上限、安全检查和每日 PIN 约束。
+- **托管模式**：半托管（默认）在自动预算内自动签名，超出则挂起等用户；全托管在硬性上限内自动签名。两者都受硬性上限、安全检查和PIN 授权 约束。
 - **签名策略**：每次签名先过策略（allow 自动 / ask 人工审批 / deny 拒绝）。代币转账、授权、Permit 等“动资产”的操作即使金额字段为 0，也不会被只针对原生币金额的规则自动放行；无限授权永远需要人工审批。
 - **硬性限额与白名单**：在策略之上再加一道，超限直接拒绝，审批也无法放行。
 - **签名前安全检查**：黑名单（OFAC、ScamSniffer、用户黑名单）、链上制裁预言机、交易模拟对账、地址投毒、授权给普通钱包等。严重风险直接拒绝，高风险强制人工审批；检查只会收紧决策，不会放宽。GoPlus 信誉查询默认关闭，由用户在面板开启。
 - **放宽只在面板**：Agent 只能收紧安全设置；放宽、加白名单、查看助记词、导出、删除账户都在设置面板完成，并要求输入 PIN。
-- **每日 PIN**：敏感操作每天首次需在设置面板输入 PIN。钱包会先检查 PIN，再弹审批框。
+- **PIN 授权**：敏感操作在授权有效期内无需重复输入（输入一次 PIN，时长 1 / 7 / 30 天，在设置面板选择）。钱包会先检查 PIN，再弹审批框。
 - **人工审批框**展示完整地址（不截断）、真实金额、手续费上限、所有风险提示。
 - **自动锁定**：闲置后自动锁定，私钥不留在内存里。签名时如果是闲置或重启导致的锁定，会用已保存的口令自动解锁（审计记为 `vault.unlocked`，`trigger: "signing"`），策略、限额、PIN、审批照常生效。用户手动锁定（面板或 `wallet_lock`）后签名直接返回 `VAULT_LOCKED`，重启后也保持，直到显式解锁；先问用户再解锁。`wallet_status` 的 `lockedByUser` 表示是否为用户锁定。
 - **审计日志**：所有决策、审批、签名与设置变更都记录在 `wallet_audit_log`，不含密钥。同一次签名请求的各条记录（`sign.decision` / `sign.approval` / `sign.needs-human` / `sign.transaction` / `sign.message` / `sign.typedData`）共用一个 `requestId`，并带有发起工具（`via`）和当时的安全模式（`preset`）；被签内容的哈希：消息的 `messageHash` 与 EIP-712 的 `digest` 记在 `sign.decision` 和签名条目里，交易的 `nonce` / `dataHash` / `txHash` 记在 `sign.transaction` 里（审批条目没有哈希）；交易可按 `txHash` 对到 `sign.broadcast`。用户问“这笔是怎么签出去的”时按 `requestId` 讲清整条链路。

@@ -39,7 +39,7 @@
 | 层级 | 场景 | 交互 | 现状 |
 |---|---|---|---|
 | L0 | 白名单地址 + 小额 | policy allow，**无感自动** | policy engine 已支持 |
-| L1 | 常规交易/签名 | 每日 PIN（一次性）+ approval ask | 已实现 |
+| L1 | 常规交易/签名 | PIN 授权（输入一次，有效期内免输）+ approval ask | 已实现 |
 | L2 | 大额 / 新地址 / 揭示私钥 | PIN（每次重验）+ approval | 已实现 |
 | 全局 | 任何交易 | 每日限额、速率限制、地址信誉、稳定币默认 | 待加 |
 
@@ -96,7 +96,7 @@ message: { from: account.address, to: payTo,
 - 返回结构：`{ status, signature, authorization, payTo, asset, chainId, amount, expiresAt, resource? }`
 
 ### 5. 安全与门禁
-- 走与 `wallet_sign_typed_data` 相同的 policy 判定 + approval + 每日 PIN 门禁；approval reason 用**人读字段**（金额、收款方、资产、资源、有效期）防钓鱼——绝不让 agent 盲签
+- 走与 `wallet_sign_typed_data` 相同的 policy 判定 + approval + PIN 授权门禁；approval reason 用**人读字段**（金额、收款方、资产、资源、有效期）防钓鱼——绝不让 agent 盲签
 - 校验链：`chainId` 必须在支持的链集合内；`asset` 建议只允许稳定币（USDC/USDT/DAI/EURC 白名单，可配置）
 - 金额上限受 L0-L2 分层授权约束（可复用：白名单+小额无感，否则 ask）
 - 私钥永不外泄：签名在 vault 内完成，返回只有 signature

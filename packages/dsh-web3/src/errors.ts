@@ -64,7 +64,7 @@ export interface ToolErrorResult {
 }
 
 const PIN_REQUIRED_MESSAGE =
-  '该操作是敏感操作，需要每日 PIN 授权（每天一次）。请引导用户前往 DSH 设置 → Web3 面板的“PIN 安全”区域输入 PIN 完成今日解锁，然后重试。PIN 只通过界面输入，绝不通过对话传递，也不要询问用户在此输入 PIN。';
+  '该操作是敏感操作，需要 PIN 授权（授权有效期为用户在面板设置的 1 / 7 / 30 天）。请引导用户前往 DSH 设置 → Web3 面板的“PIN 安全”区域输入 PIN 完成授权，然后重试。PIN 只通过界面输入，绝不通过对话传递，也不要询问用户在此输入 PIN。';
 const PIN_LOCKED_MESSAGE = 'PIN 连续输错次数过多，已锁定至今日结束。请明天再试，或在 DSH 设置 → Web3 查看锁定倒计时。';
 
 /** ethers v6 attaches a string `code` to its errors. */
@@ -97,7 +97,7 @@ export function toToolError(error: unknown): ToolErrorResult {
     };
   }
   if (error instanceof PinRequiredError) {
-    return { ok: false, status: 'pin-required', code: 'PIN_REQUIRED', message: PIN_REQUIRED_MESSAGE, hint: 'Ask the user to unlock today in DSH Settings → Web3 → PIN, then retry the same call.' };
+    return { ok: false, status: 'pin-required', code: 'PIN_REQUIRED', message: PIN_REQUIRED_MESSAGE, hint: 'Ask the user to enter the PIN in DSH Settings → Web3 → PIN to authorize, then retry the same call.' };
   }
   if (error instanceof PinLockedError) {
     return { ok: false, status: 'pin-locked', code: 'PIN_LOCKED', message: PIN_LOCKED_MESSAGE, hint: 'Do not retry today.' };

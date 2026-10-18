@@ -2,6 +2,16 @@
 
 All notable changes to `dsh-web3` (the DSH bundle) and `dsh-web3-core` (the library). Dates are npm publish dates. The project follows [Semantic Versioning](https://semver.org/); while in `0.x`, a minor version may contain breaking changes, which are listed under **Breaking**.
 
+## dsh-web3 0.10.0 / dsh-web3-core 0.6.0 — 2026-10-18
+
+### Added
+
+- Settings → Web3 → Security: choose how long one PIN entry authorizes sensitive operations — 1, 7 or 30 days (default 1, the previous behaviour). Shortening takes effect at once; lengthening asks for the PIN. Stored as `grantDays` in `pin-state.json`.
+
+### Changed
+
+- The PIN grant is a fixed period from the moment the PIN is entered instead of "until midnight". Grants recorded by earlier versions still last until the end of their day. `PinStatus.authorizedToday` is now `PinStatus.authorized`, with `authorizedUntil` and `grantDays` alongside (dsh-web3-core).
+
 ## dsh-web3 0.9.2 — 2026-10-17
 
 ### Fixed

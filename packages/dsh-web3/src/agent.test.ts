@@ -302,7 +302,7 @@ describe('broadcast failures and lifecycle', () => {
 });
 
 describe('gates and guardrails', () => {
-  it('checks the daily PIN before asking the human for approval', async () => {
+  it('checks the PIN authorization before asking the human for approval', async () => {
     await service.pinSetup('1234');
     await service.pinClearDaily();
     const result = await run('wallet_transfer', { account: 'main', chainId: 8453, to: ALICE, amount: '0.01' });
@@ -691,6 +691,19 @@ describe('settings-panel secrets', () => {
     expect(exported.address).toBe(ACCOUNT_0);
     expect(Object.keys(JSON.parse(exported.json)).map((key) => key.toLowerCase())).toContain('crypto');
     await expect(service.exportKeystoreFromPanel('main', 'short', '1234')).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
+  });
+
+  it('sets the PIN authorization length: shortening is free, lengthening needs the PIN', async () => {
+    await service.pinSetup('1234');
+    expect((await service.pinStatus()).grantDays).toBe(1);
+    await expect(service.setPinGrantDaysFromPanel(7)).rejects.toMatchObject({ code: 'PIN_REQUIRED' });
+    await expect(service.setPinGrantDaysFromPanel(7, '9999')).rejects.toMatchObject({ code: 'PIN_INVALID' });
+    const lengthened = await service.setPinGrantDaysFromPanel(30, '1234');
+    expect(lengthened).toMatchObject({ grantDays: 30, authorized: true });
+    expect(Date.parse(lengthened.authorizedUntil!) - Date.now()).toBeGreaterThan(29 * 24 * 60 * 60 * 1000);
+    const shortened = await service.setPinGrantDaysFromPanel(1);
+    expect(shortened).toMatchObject({ grantDays: 1 });
+    await expect(service.setPinGrantDaysFromPanel(14 as 1)).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
   });
 
   it('renames accounts for display only', async () => {

@@ -1,6 +1,6 @@
 {
   "name": "dsh-web3-core",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Agent-safe EVM wallet core: encrypted key vault, HD accounts, declarative signing policy, chain providers, and EIP-191/EIP-712/EIP-1559 signing.",
   "keywords": [
     "web3",

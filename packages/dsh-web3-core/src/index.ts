@@ -59,5 +59,7 @@ export {
   PIN_MAX_FAILURES,
   PIN_MIN_LENGTH,
   PIN_MAX_LENGTH,
+  PIN_GRANT_DAYS,
+  PIN_DEFAULT_GRANT_DAYS,
 } from './pin.js';
-export type { PinFile, PinPepperSource, PinStateFile, PinStatus } from './pin.js';
+export type { PinFile, PinGrantDays, PinPepperSource, PinStateFile, PinStatus } from './pin.js';

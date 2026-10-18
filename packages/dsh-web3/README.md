@@ -128,7 +128,7 @@ prepare  resolve recipient / token / amount → populate (nonce, gas, fees)
          → decode intent → preflight (revert, balance) → policy dry-run
          → security checks → escalate → single-use preparedId (15 min)
 execute  per-account lock → refresh nonce / fees → policy → security re-check
-         → vault lock + daily PIN → human approval (when `ask`) → sign
+         → vault lock + PIN authorization → human approval (when `ask`) → sign
          → journal → broadcast
 ```
 
@@ -154,7 +154,7 @@ A `critical` finding refuses the request, `high` forces human approval even when
 
 - Key files are scrypt + AES-256-GCM encrypted, one per account, with the account id bound into the authentication tag.
 - The vault passphrase resolves from `DSH_WALLET_PASSPHRASE`, then the macOS Keychain, then the DSH credentials store; in `auto` mode a 32-byte random passphrase is generated on first use. A passphrase found in the plaintext credentials file is moved into the Keychain.
-- The daily PIN is stored as an scrypt hash keyed by a pepper kept in the Keychain.
+- The PIN is stored as an scrypt hash keyed by a pepper kept in the Keychain. One entry authorizes sensitive operations for 1, 7 or 30 days (set in Settings → Web3 → Security; default 1 day). Lengthening the period needs the PIN; shortening takes effect at once.
 - Tools never return recovery phrases, private keys, or the PIN; backups happen in the settings panel.
 
 ### Files (vault directory)

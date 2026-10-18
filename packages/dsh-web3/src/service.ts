@@ -32,7 +32,9 @@ import type { TypedDataDomain, TypedDataField } from 'ethers';
 import { pinPepper, type SecretStore } from './keychain.js';
 import {
   JsonRpcChainProvider,
+  PIN_GRANT_DAYS,
   PinGuard,
+  type PinGrantDays,
   WalletVault,
   VaultLockedError,
   accountBalances,
@@ -307,7 +309,7 @@ export class WalletService {
     this.pinReady = this.pin.load();
   }
 
-  /** Await PIN load and require daily authorization (throws when gated). */
+  /** Await PIN load and require a PIN authorization in force (throws when gated). */
   private async pinGate(): Promise<void> {
     await this.pinReady;
     this.pin.requireAuthorized();
@@ -407,7 +409,7 @@ export class WalletService {
     this.vault.ensureUnlocked();
   }
 
-  /** Lock the vault (zeroize decrypted key material) and revoke daily PIN. */
+  /** Lock the vault (zeroize decrypted key material) and revoke PIN authorization. */
   lock(): void {
     this.lockEpoch += 1;
     this.lockedByUser = true;
@@ -421,7 +423,7 @@ export class WalletService {
     }
   }
 
-  // ── daily PIN gate ──────────────────────────────────────────────────────
+  // ── PIN gate ──────────────────────────────────────────────────────
 
   /** PIN gate status (secret-free). */
   async pinStatus(): Promise<PinStatus> {
@@ -449,10 +451,25 @@ export class WalletService {
     return this.pin.status();
   }
 
-  /** Revoke today's authorization (manual lock / UI). */
+  /** Revoke the current authorization (manual lock / UI). */
   async pinClearDaily(): Promise<PinStatus> {
     await this.pinReady;
     await this.pin.clearDaily();
+    return this.pin.status();
+  }
+
+  /**
+   * Settings panel: how long one PIN entry authorizes sensitive operations.
+   * Shortening needs no PIN; lengthening is a step-up, like any loosening.
+   */
+  async setPinGrantDaysFromPanel(days: PinGrantDays, pin?: string): Promise<PinStatus> {
+    await this.pinReady;
+    if (!PIN_GRANT_DAYS.includes(days)) throw new WalletError('INVALID_ARGUMENT', 'PIN authorization must be 1, 7 or 30 days');
+    const current = this.pin.grantDays;
+    const lengthening = days > current;
+    if (lengthening) await this.stepUp(pin, `lengthen the PIN authorization to ${days} days`);
+    await this.pin.setGrantDays(days);
+    await this.vault.auditAppend('pin.grant', { via: 'panel', days, previousDays: current, lengthening });
     return this.pin.status();
   }
 
@@ -538,7 +555,7 @@ export class WalletService {
     return resolved;
   }
 
-  /** Remove an account after approval + daily PIN. */
+  /** Remove an account after approval + PIN authorization. */
   async removeAccount(accountId: string): Promise<AccountMeta> {
     await this.pinGate();
     return await this.vault.removeAccount(accountId);
@@ -1005,7 +1022,7 @@ export class WalletService {
     const willRequire = {
       humanApproval: decision.effect === 'ask' && !aboveAutoBudget,
       aboveAutoBudget,
-      dailyPin: pin.enabled && !pin.authorizedToday,
+      dailyPin: pin.enabled && !pin.authorized,
       blocked: decision.effect === 'deny',
     };
     const display = intentDisplay(plan.intent, plan.asset);
@@ -1033,7 +1050,7 @@ export class WalletService {
           ? `Executing would return needs-human without signing. ${NEEDS_HUMAN_NEXT}`
           : `Show the user the summary${security.findings.length > 0 ? ' AND every security finding' : ''}, get explicit confirmation, then call wallet_send_transaction with { preparedId: "${plan.id}" }.` +
           (severityRank(security.severity) >= severityRank('high') ? ' There are HIGH-risk findings: relay each one to the user word for word and let the user decide; never dismiss them yourself.' : '') +
-          (willRequire.dailyPin ? ' The user must first unlock today\'s PIN in DSH Settings → Web3.' : '') +
+          (willRequire.dailyPin ? ' The user must first enter the PIN in DSH Settings → Web3 to authorize signing.' : '') +
           (willRequire.humanApproval ? ' A human approval prompt will appear when executing.' : ''),
     };
   }
@@ -1121,7 +1138,7 @@ export class WalletService {
       return (plan.result = { status: 'needs-human', decision, summary: plan.headline, security, next: NEEDS_HUMAN_NEXT });
     }
     // Lock + PIN before approval: never ask the human to approve something
-    // the vault lock or the daily PIN gate would then refuse.
+    // the vault lock or the PIN gate would then refuse.
     await this.requireSigningUnlocked();
     await this.pinGate();
     if (decision.effect === 'ask') {
