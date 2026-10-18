@@ -2,6 +2,12 @@
 
 All notable changes to `dsh-web3` (the DSH bundle) and `dsh-web3-core` (the library). Dates are npm publish dates. The project follows [Semantic Versioning](https://semver.org/); while in `0.x`, a minor version may contain breaking changes, which are listed under **Breaking**.
 
+## dsh-web3 0.10.1 — 2026-10-18
+
+### Fixed
+
+- Settings → Web3 → Security: the current authorization length (1 / 7 / 30 days) now shows as selected. It was disabled, so it looked greyed out.
+
 ## dsh-web3 0.10.0 / dsh-web3-core 0.6.0 — 2026-10-18
 
 ### Added
