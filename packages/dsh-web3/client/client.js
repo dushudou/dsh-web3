@@ -1124,12 +1124,11 @@ window.__ModuleLoader__.load({
 							],
 					),
 					pin.enabled ? h(Row, { label: t("pinGrant"), hint: t("pinGrantHint") },
-						[1, 7, 30].map((days) => h(Btn, {
-							key: days,
-							variant: pin.grantDays === days ? "primary" : "ghost",
-							disabled: busy || pin.grantDays === days,
-							onClick: () => void act(() => stepUp((code) => api("pinGrantDays", { days, pin: code })), t("pinGrantSaved")),
-						}, t("grant" + days))),
+						h(Segments, {
+							id: "dshw-grant", label: t("pinGrant"), value: String(pin.grantDays),
+							options: [1, 7, 30].map((days) => ({ value: String(days), label: t("grant" + days) })),
+							onChange: (value) => { const days = Number(value); if (days !== pin.grantDays) void act(() => stepUp((code) => api("pinGrantDays", { days, pin: code })), t("pinGrantSaved")); },
+						}),
 					) : null,
 				),
 				data.security ? h(ChecksSection, { security: data.security, reload: props.reload }) : null,
