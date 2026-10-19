@@ -79,15 +79,15 @@
     "ethers": "^6.13.0"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/cordis": "^4.0.4",
     "@deepseek-ai/dsh-typert-protocol": ">=0.1.0-rc.6 <0.2.0 || >=0.2.0-rc.0 <0.3.0"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/cordis": "^4.0.4",
     "@deepseek-ai/dsh-typert-protocol": "0.1.0-rc.6",
-    "@types/node": "^22.10.0",
-    "typescript": "^5.7.0",
-    "vitest": "^3.0.0"
+    "@types/node": "^26.6.5",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
   },
   "publishConfig": {
     "access": "public"
